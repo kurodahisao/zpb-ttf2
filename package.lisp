@@ -87,5 +87,6 @@
    ;; glyph dump
    "OPEN-FONT-LOADER-FROM-STREAM"
    "DUMP-FONT-LOADER-TO-STREAM"
-   "*DUMP-CHARACTER-LIST*"))
+   "*DUMP-CHARACTER-LIST*")
+  (:nicknames #:zpb-ttf))
 
