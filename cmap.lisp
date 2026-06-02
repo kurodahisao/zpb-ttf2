@@ -237,7 +237,7 @@ FONT-LOADER, if present, otherwise NIL.")
                                (length (read-uint32 input-stream))
                                (language (read-uint32 input-stream))
                                (ngroups (read-uint32 input-stream)))
-                           (declare (ignore format2 length language))
+                           (declare (ignore format1 format2 length language))
                            (loop repeat ngroups
                                do (read-uint32 input-stream) (read-uint32 input-stream) (read-uint32 input-stream))))
                      ;; Subtable format 14 specifies the Unicode Variation Sequences (UVSes) supported by the font. A Variation Sequence, according to the Unicode Standard, comprises a base character followed by a variation selector; e.g. <U+82A6, U+E0101>.
@@ -247,9 +247,10 @@ FONT-LOADER, if present, otherwise NIL.")
                                (default-uvs-offset (read-uint32 input-stream))
                                (non-default-uvs-offset (read-uint32 input-stream)))
                            (warn "Format=~A,length=~A,records=~A,selector=~X,uvs-offset=~A,non-uvs-offset=~A~%" format1 length num-var-selector-records var-selector default-uvs-offset non-default-uvs-offset)))
-                     (t (warn "Non Supported CMAP Format=~A." format1)))))
-        (unless foundp
-          (error "Could not find supported character map in font file"))))))
+                     (t (warn "Non Supported CMAP Format=~A." format1))))
+                 finally
+              (unless foundp
+                (error "Could not find supported character map in font file. (platform-id=~A, platform-specific-id=~A)" platform-id platform-specific-id)))))))
 
 (defmethod character-map ((font-loader font-loader))
   (unicode-cmap (cmap-table font-loader)))

@@ -1,3 +1,4 @@
+;;; -*- coding:utf-8; syntax:common-lisp -*-
 ;;; Copyright (c) 2006 Zachary Beane, All Rights Reserved
 ;;; Copyright (c) 2016 KURODA Hisao, All Rights Reserved
 ;;;
@@ -48,7 +49,7 @@
 
 #||
 ;;; cmap encoding subtable: platformID, platformSpecificID and offset
-;;; $BEG=P$9$H$-$O(B UCS-2 $B$N%F!<%V%k$@$1$G9%$$(B?
+;;; 吐出すときは UCS-2 のテーブルだけで好い?
 (0 3 3976) ; Default semantics & PRC
 (3 1 60042) ; Unicode 2.0 or later semantics (BMP only) & UCS-2
 (3 10 116108) ; Unicode 2.0 or later semantics (BMP only) & UCS-4
@@ -56,7 +57,7 @@
 ;;; Glyph Internal
 (with-open-file (input "/usr/share/fonts/ipam.ttf" :external-format :latin-1 :element-type 'unsigned-byte)
   (loop with fontloader = (open-font-loader-from-stream input)
-      for char in '(#\$B$!(B #\$B$"(B #\$B$#(B #\$B$$(B #\$BTh(B)
+      for char in '(#\ぁ #\あ #\ぃ #\い #\壽)
       do (file-position input
                         (zpb-ttf::location (zpb-ttf:find-glyph char fontloader)))
          (print (list char 
@@ -75,7 +76,7 @@
 ;;;
 (with-open-file (input "/usr/share/fonts/ipam.ttf" :external-format :latin-1 :element-type 'unsigned-byte)
   (let ((loader (open-font-loader-from-stream input)))
-    (loop for char in '(#\1 #\a #\$B$!(B #\$B$"(B #\$B$#(B #\$B$$(B #\$BTh(B)
+    (loop for char in '(#\1 #\a #\ぁ #\あ #\ぃ #\い #\壽)
         for glyph = (find-glyph char loader)
         for index = (font-index glyph)
         collect (list char (read-contours-at-index index loader)))))
@@ -364,7 +365,7 @@
           (write-byte byte output))))
 ;;; $ cmp ~/foo /usr/share/fonts/ipam.ttf
 
-;;; IPAMincho ttf table: ($BL>A0(B offset size)
+;;; IPAMincho ttf table: (名前 offset size)
 ("GDEF" 300 30) 
 ("GSUB" 332 3518) 
 ("OS/2" 3852 96) 
@@ -386,43 +387,13 @@
 ||#
 
 
-(defun open-font-loader-from-stream (input-stream &key (collection-index 0))
-  (let ((magic (read-uint32 input-stream))
-        (font-count))
-    (when (/= magic #x00010000 #x74727565 #x74746366)
+(defun open-font-loader-from-stream (input-stream)
+  (let ((magic (read-uint32 input-stream)))
+    (when (/= magic #x00010000 #x74727565)
       (error 'bad-magic
              :location "font header"
-             :expected-values (list #x00010000 #x74727565 #x74746366)
+             :expected-values (list #x00010000 #x74727565)
              :actual-value magic))
-    (when (= magic #x74746366)
-      (let ((version (read-uint32 input-stream)))
-        (check-version "ttc header" version #x00010000 #x00020000)
-        (setf font-count (read-uint32 input-stream))
-        (let* ((offset-table (make-array font-count))
-               (dsig))
-          (when (> collection-index font-count)
-            (error 'unsupported-value
-                   :description "Font index out of range"
-                   :actual-value collection-index
-                   :expected-values (list font-count)))
-          (loop for i below font-count
-                do (setf (aref offset-table i) (read-uint32 input-stream)))
-          (when (= version #x00020000)
-            (let ((flag (read-uint32 input-stream))
-                  (length (read-uint32 input-stream))
-                  (offset (read-uint32 input-stream)))
-              (list flag length offset)
-              (when (= #x44534947 flag)
-                (setf dsig (list length offset)))))
-          ;; seek to font offset table
-          (file-position input-stream (aref offset-table collection-index))
-          (let ((magic2 (read-uint32 input-stream)))
-            (when (/= magic2 #x00010000 #x74727565)
-              (error 'bad-magic
-                     :location "font header"
-                     :expected-values (list #x00010000 #x74727565)
-                     :actual-value magic2))))))
-
     (let* ((table-count (read-uint16 input-stream))
            (search-range (read-uint16 input-stream))
            (entry-selector (read-uint16 input-stream))
@@ -433,11 +404,7 @@
                                        :search-range search-range
                                        :entry-selector entry-selector
                                        :range-shift range-shift
-                                       :table-count table-count
-                                       :collection-font-cont font-count
-                                       :collection-font-index
-                                       (when font-count
-                                         collection-index))))
+                                       :table-count table-count)))
       ;;uint32 CalcTableChecksum(uint32 *table, uint32 numberOfBytesInTable)
       ;;    {
       ;;    uint32 sum = 0;
@@ -485,12 +452,11 @@
           do (print (list name offset size)))
       font-loader)))
 
-(defun open-font-loader-from-file (thing &key (collection-index 0))
+(defun open-font-loader-from-file (thing)
   (let ((stream (open thing
                       :direction :input
                       :element-type '(unsigned-byte 8))))
-    (let ((font-loader (open-font-loader-from-stream
-                        stream :collection-index collection-index)))
+    (let ((font-loader (open-font-loader-from-stream stream)))
       (arrange-finalization font-loader stream)
       font-loader)))
 
@@ -503,14 +469,13 @@
           (setf (input-stream thing) (open (input-stream thing))))
         thing)
        (t
-        (open-font-loader-from-file (input-stream thing)
-                                    :collection-index collection-index))))
+        (open-font-loader-from-file (input-stream thing)))))
     (stream
      (if (open-stream-p thing)
-         (open-font-loader-from-stream thing :collection-index collection-index)
+         (open-font-loader-from-stream thing)
          (error "~A is not an open stream" thing)))
     (t
-     (open-font-loader-from-file thing :collection-index collection-index))))
+     (open-font-loader-from-file thing))))
 
 (defun close-font-loader (loader)
   (close (input-stream loader)))
@@ -546,83 +511,6 @@
       ("vhea" 7995764 36) 
       ("vmtx" 7995800 50910)))
 
-#+obsolete
-(defun dump-font-loader-to-stream (font-loader output-stream)
-  (let* ((magic (scaler-type font-loader))
-         (table-list '("cvt " "fpgm" "glyf" "head" "hhea" "hmtx" "loca" "maxp" "post" "prep" "vhea" "vmtx"))
-         (table-count (length table-list)) ; (table-count font-loader)
-         (search-range (search-range font-loader))
-         (entry-selector (entry-selector font-loader))
-         (range-shift (range-shift font-loader)))
-    (write-uint32 magic output-stream)
-    (write-uint16 table-count output-stream)
-    (write-uint16 search-range output-stream)
-    (write-uint16 entry-selector output-stream)
-    (write-uint16 range-shift output-stream)
-    ;;uint32 CalcTableChecksum(uint32 *table, uint32 numberOfBytesInTable)
-    ;;    {
-    ;;    uint32 sum = 0;
-    ;;    uint32 nLongs = (numberOfBytesInTable + 3) / 4;
-    ;;    while (nLongs-- > 0)
-    ;;        sum += *table++;
-    ;;    return sum;
-    ;;    }
-    (let ((start-table (file-position output-stream)))
-      (advance-file-position output-stream
-                             (loop repeat (hash-table-count (tables font-loader))
-                                 sum 16))
-      ;; (dump-gdef-info font-loader output-stream)
-      (change-table-size "GDEF" 0 font-loader)
-      ;; (dump-gsub-info font-loader output-stream)
-      (change-table-size "GSUB" 0 font-loader)
-      ;; (dump-os/2-info font-loader output-stream)
-      (change-table-size "OS/2" 0 font-loader)
-      ;; (dump-cmap-info font-loader output-stream)
-      (change-table-size "cmap" 0 font-loader)
-      (dump-cvt--info font-loader output-stream)
-      (dump-fpgm-info font-loader output-stream)
-      ;; (dump-gasp-info font-loader output-stream)
-      (change-table-size "gasp" 0 font-loader)
-      (dump-glyf-info font-loader output-stream)
-      (dump-head-info font-loader output-stream)
-      (dump-hhea-info font-loader output-stream)
-      (dump-hmtx-info font-loader output-stream)
-      ;; (dump-kern-info font-loader output-stream)      ; No Kern in IPAMincho
-      (dump-loca-info font-loader output-stream)
-      (dump-maxp-info font-loader output-stream)
-      ;; (dump-name-info font-loader output-stream)
-      (change-table-size "name" 0 font-loader)
-      (dump-post-info font-loader output-stream)
-      (dump-prep-info font-loader output-stream)
-      (dump-vhea-info font-loader output-stream)
-      (dump-vmtx-info font-loader output-stream)
-      #+ignore
-      (loop ;; for table-info being the hash-values of (tables font-loader)
-          for (name nil nil) in ipa-mincho-table-name-offset-size
-          for table-info = (gethash (tag->number name) (tables font-loader))
-          for table-position from start-table by 16
-          for offset = (offset table-info)
-          for size = (size table-info)
-          for checksum = (calc-table-checksum offset size output-stream)
-          do (print (list name offset size))
-             (file-position output-stream table-position)
-             (write-uint32 (tag->number (name table-info)) output-stream)
-             (write-uint32 checksum output-stream)
-             (write-uint32 offset output-stream)
-             (write-uint32 size output-stream))
-      (loop for name in table-list
-          for table-info = (table-info name font-loader)
-          for table-position from start-table by 16
-          for offset = (offset table-info)
-          for size = (size table-info)
-          for checksum = (calc-table-checksum offset size output-stream)
-          do (print (list name offset size))
-             (file-position output-stream table-position)
-             (write-uint32 (tag->number (name table-info)) output-stream)
-             (write-uint32 checksum output-stream)
-             (write-uint32 offset output-stream)
-             (write-uint32 size output-stream)))))
-
 (defun dump-font-loader-to-stream (font-loader output-stream &optional (table-name-list '("cvt " "fpgm" "glyf" "head" "hhea" "hmtx" "loca" "maxp" "post" "prep" "vhea" "vmtx")))
   (let* ((magic (scaler-type font-loader))
          (table-count (length table-name-list)) ; (table-count font-loader)
@@ -642,10 +530,13 @@
                       collect (cons (number->tag number) table-info))))
       (advance-file-position output-stream table-offset)
       (let ((sorted-table-list
-             (sort tables #'< :key #'(lambda (x) (offset (cdr x))))))
+             (sort tables #'< :key #'(lambda (x) (offset (cdr x)))))
+            (loader-table-name-list
+             (loop for name in table-name-list
+                 when (table-info name font-loader) collect name)))
         (loop for (name . nil) in sorted-table-list
-            do (dump-table-info name font-loader output-stream table-name-list))
-        (loop for name in table-name-list
+            do (dump-table-info name font-loader output-stream loader-table-name-list))
+        (loop for name in loader-table-name-list
             for table-info = (table-info name font-loader)
             for table-position from start-table by 16
             for offset = (offset table-info)
@@ -693,3 +584,78 @@
          (dump-gasp-info font-loader output-stream))
         (t
          (error "Unknown Table Name ~A." name))))
+
+(progn
+  (defparameter +sample-string-list+
+      '(" !@#$%^&*()_+"
+        "　！＠＃＄％＾＆＊（）＿＋｜→"
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "ａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐ"
+        "ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰ"
+        "0123456789-=`"
+        "０１２３４５６７８９‐＝"
+        "ｲﾛﾊﾆﾎﾍﾄﾞﾁﾘﾇﾙｦ"
+        "いろはにほへどちりぬるを"
+        "わがよたれぞつねならむ" 
+        "うゐのおくやまけふこえて"
+        "あさきゆめみしゑひもせす"))
+  (defparameter +sample-character-list+
+      (loop for string in +sample-string-list+
+          append (loop for char across string collect char))))
+
+#||
+
+CL-USER(869): :cd ~/project/honda-2016/devel
+CL-USER(870): :ld init
+CL-USER(877): :ld zpb/defsystem.lisp
+CL-USER(878): (excl:load-system :zpb-patch :compile t)
+CL-USER(878): :pa :zpb-ttf
+ZPB-TTF(882): (with-open-file (input "c:/Windows/Fonts/ipam.ttf" :external-format :octets)
+                (open-font-loader-from-stream input))
+ZPB-TTF(883): (setq font-loader *)
+ZPB-TTF(884): (with-open-file (stream "foo" :direction :io :if-exists :supersede)
+                (dump-font-loader-to-stream font-loader stream +sample-character-list+))
+ZPB-TTF(888): :pa :pdf
+CL-PDF(889): :cl ../sample-codes/pdf-parser/cl-pdf-unicode.lisp
+CL-PDF(889): (remhash (list "ipamincho" (get-encoding *unicode-encoding*)) *font-cache*)
+T
+CL-PDF(890): (load-ipa-font "../devel/pdf/ipam.ufm" "foo")
+#<TTU-FONT-METRICS IPAMincho @ #x1240f8392>
+CL-PDF(891): (make-c2g-subset * +sample-character-list+)
+CL-PDF(891): (jexample)
+CL-PDF(944): (file-length "tmp.pdf")
+122771
+CL-PDF(945): (file-length "../sample-codes/pdf-parser/iroha.pdf")
+8361590
+
+;;;;;
+
+CL-USER(245): zpb-ttf::(let ((*dump-character-list* +sample-character-list+))
+                         (setq font-loader
+                           (with-open-file (input "c:/Windows/Fonts/ipam.ttf" :external-format :octets)
+                             (open-font-loader-from-stream input)))
+                         (with-open-file (stream "foo" :direction :io :if-exists :supersede)
+                           (dump-font-loader-to-stream font-loader stream)))
+("cvt " 300 204) 
+("fpgm" 504 113) 
+("glyf" 620 41100) 
+("head" 41720 54) 
+("hhea" 41776 36) 
+("hmtx" 41812 2716) 
+("loca" 44528 25460) 
+("maxp" 69988 32) 
+("post" 70020 120451) 
+("prep" 190472 10) 
+("vhea" 190484 36) 
+("vmtx" 190520 2716) 
+NIL
+CL-USER(246): cl-pdf::(progn
+                        (remhash (list "ipamincho" (get-encoding *unicode-encoding*)) *font-cache*)
+                        (make-c2g-subset (load-ipa-font "../devel/pdf/ipam.ufm" "foo") +sample-character-list+)
+                        (jexample))
+#P"tmp.pdf"
+CL-USER(248): (file-length "tmp.pdf")
+89932
+
+||#

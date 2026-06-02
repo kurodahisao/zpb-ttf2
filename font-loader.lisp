@@ -102,8 +102,8 @@
 (defclass table-info ()
   ((name :initarg :name :reader name)
    (checksum :initarg :checksum :accessor checksum)
-   (offset :initarg :offset :reader offset)
-   (size :initarg :size :reader size)))
+   (offset :initarg :offset :accessor offset)
+   (size :initarg :size :accessor size)))
 
 (defmethod print-object ((object table-info) stream)
   (print-unreadable-object (object stream :type t)
